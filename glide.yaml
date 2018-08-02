@@ -1,0 +1,7 @@
+package: github.com/jsmootiv/piq
+import:
+- package: golang.org/x/crypto
+  subpackages:
+  - ssh
+- package: github.com/spf13/cobra
+  version: ^0.0.3
