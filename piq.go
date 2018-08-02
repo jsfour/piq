@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"crypto"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -31,10 +33,18 @@ type config struct {
 
 func OpenConfig(location string) (*config, error) {
 	cfg := &config{}
-
 	jsonFile, err := os.Open(location)
 
 	if err != nil {
+		currUser, err := user.Current()
+		if err != nil {
+			return cfg, nil
+		}
+		userCfg := currUser.HomeDir + "/.piq/config.json"
+		if location == userCfg {
+			return cfg, errors.New("No config found")
+		}
+		return OpenConfig(userCfg)
 		return cfg, nil
 	}
 	defer jsonFile.Close()
