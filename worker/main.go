@@ -20,7 +20,7 @@ func (wc *WorkerConnection) SendCommand(cmd string) (*command.CommandResponse, e
 	res := command.NewCommandResponse(wc.host.Hostname)
 	wc.session.Stdout = &buff
 	if err := wc.session.Run(cmd); err != nil {
-		fmt.Println("Failed to run: " + cmd + err.Error())
+		fmt.Println(wc.host.Hostname, " failed to run: ", cmd, err.Error())
 		return res, err
 	}
 	res.Data = bytes.Replace(buff.Bytes(), []byte("\x00"), []byte{}, -1)
@@ -29,8 +29,8 @@ func (wc *WorkerConnection) SendCommand(cmd string) (*command.CommandResponse, e
 
 func (wc *WorkerConnection) Start(host WorkerHost) (chan struct{}, error) {
 	quit := make(chan struct{})
-	fmt.Println("Connecting to:", host.Hostname)
 	wc.host = host
+	fmt.Println(host.Hostname, " Connecting")
 	config := &ssh.ClientConfig{
 		User: wc.host.Username,
 		Auth: []ssh.AuthMethod{
