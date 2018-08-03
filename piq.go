@@ -45,7 +45,6 @@ func OpenConfig(location string) (*config, error) {
 			return cfg, errors.New("No config found")
 		}
 		return OpenConfig(userCfg)
-		return cfg, nil
 	}
 	defer jsonFile.Close()
 
