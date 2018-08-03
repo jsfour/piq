@@ -63,9 +63,11 @@ func (wc *WorkerConnection) Start(host WorkerHost) (chan struct{}, error) {
 	return quit, nil
 }
 
-func NewConnectededWorkers(workerHosts []WorkerHost) []*WorkerConnection {
+func NewConnectededWorkers(workerHosts []WorkerHost) ([]*WorkerConnection, []*WorkerConnection) {
 	var wg sync.WaitGroup
 	var workerConns []*WorkerConnection
+	var workerConnErrs []*WorkerConnection
+
 	conPipeline := make(chan *WorkerConnection)
 
 	go func() {
@@ -77,13 +79,17 @@ func NewConnectededWorkers(workerHosts []WorkerHost) []*WorkerConnection {
 	for _, host := range workerHosts {
 		wg.Add(1)
 		go func(host WorkerHost) {
+			defer wg.Done()
 			conn := WorkerConnection{}
-			conn.Start(host)
+			_, err := conn.Start(host)
+			if err != nil {
+				fmt.Println("Error connecting to", host.Hostname)
+				return
+			}
 			conPipeline <- &conn
-			wg.Done()
 		}(host)
 	}
 	wg.Wait()
 	close(conPipeline)
-	return workerConns
+	return workerConns, workerConnErrs
 }

@@ -89,7 +89,8 @@ func getStats(cmd *cobra.Command, args []string) {
 	quit := make(chan struct{})
 	defer close(quit)
 
-	workerConns := worker.NewConnectededWorkers(workers)
+	// TODO: Process error connections
+	workerConns, _ := worker.NewConnectededWorkers(workers)
 	responseFeed := make(chan command.CommandResponse)
 	printerDone := startPrinter(quit, responseFeed)
 
