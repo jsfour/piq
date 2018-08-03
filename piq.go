@@ -1,22 +1,16 @@
 package main
 
 import (
-	"bufio"
-	"crypto"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"net"
 	"os"
 	"os/user"
-	"path/filepath"
-	"strings"
 
 	"github.com/jsmootiv/piq/command"
 	"github.com/jsmootiv/piq/worker"
 	"github.com/spf13/cobra"
-	"golang.org/x/crypto/ssh"
 )
 
 type config struct {
@@ -46,41 +40,6 @@ func OpenConfig(location string) (*config, error) {
 	}
 	json.Unmarshal(byteValue, cfg)
 	return cfg, nil
-}
-
-func hostKeyCheck(hostname string, remote net.Addr, key crypto.PublicKey) error {
-	// Every client must provide a host key check.  Here is a
-	// simple-minded parse of OpenSSH's known_hosts file
-	file, err := os.Open(filepath.Join(os.Getenv("HOME"), ".ssh", "known_hosts"))
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	var hostKey ssh.PublicKey
-	for scanner.Scan() {
-		fields := strings.Split(scanner.Text(), " ")
-		if len(fields) != 3 {
-			continue
-		}
-		if strings.Contains(fields[0], hostname) {
-			var err error
-			hostKey, _, _, _, err = ssh.ParseAuthorizedKey(scanner.Bytes())
-			if err != nil {
-				fmt.Println("error parsing %q: %v", fields[2], err)
-				panic(1)
-			}
-			break
-		}
-	}
-
-	if hostKey == nil {
-		// TODO: allow to add if nil
-		return nil
-	}
-
-	return nil
 }
 
 func startPrinter(quit chan struct{}, inputFeed chan command.CommandResponse) chan struct{} {
@@ -120,7 +79,13 @@ func getStats(cmd *cobra.Command, args []string) {
 		fmt.Println("Failed to load config: ", err)
 		panic(1)
 	}
-	workers := appCfg.Workers
+
+	workers, err := worker.NewWorkerHostBatch(appCfg.Workers)
+	if err != nil {
+		fmt.Println("Failed to read workers: ", err)
+		panic(1)
+	}
+
 	quit := make(chan struct{})
 	defer close(quit)
 
@@ -141,6 +106,19 @@ func getStats(cmd *cobra.Command, args []string) {
 	<-printerDone
 }
 
+func killWorker(cmd *cobra.Command, args []string) {
+	fmt.Println("Killing worker not supported yet")
+	// appCfg, err := OpenConfig("./config.json")
+	// if err != nil {
+	// 	fmt.Println("Failed to load config: ", err)
+	// 	panic(1)
+	// }
+	// var targetWorkers string
+	// for _, worker := appCfg.Workers {
+	// 	if
+	// }
+}
+
 func main() {
 	var stats = &cobra.Command{
 		Use:   "stats",
@@ -148,7 +126,14 @@ func main() {
 		Run:   getStats,
 	}
 
+	var kill = &cobra.Command{
+		Use:   "kill [hostname]",
+		Short: "Kills worker",
+		Run:   killWorker,
+	}
+
 	var rootCmd = &cobra.Command{Use: "app"}
 	rootCmd.AddCommand(stats)
+	rootCmd.AddCommand(kill)
 	rootCmd.Execute()
 }
