@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"crypto"
 	"encoding/json"
 	"errors"
@@ -13,10 +12,9 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/jsmootiv/piq/command"
+	"github.com/jsmootiv/piq/worker"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 )
@@ -85,19 +83,7 @@ func hostKeyCheck(hostname string, remote net.Addr, key crypto.PublicKey) error 
 	return nil
 }
 
-type commandResponse struct {
-	Data   []byte
-	Source string
-}
-
-func NewCommandResponse(source string) *commandResponse {
-	return &commandResponse{
-		Data:   []byte{},
-		Source: source,
-	}
-}
-
-func startPrinter(quit chan struct{}, inputFeed chan commandResponse) chan struct{} {
+func startPrinter(quit chan struct{}, inputFeed chan command.CommandResponse) chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -127,77 +113,30 @@ func startPrinter(quit chan struct{}, inputFeed chan commandResponse) chan struc
 	return done
 }
 
-func newErrorJson(err error) string {
-	return fmt.Sprint(`{ "error": "`, err.Error(), `"}`)
-}
-
 func getStats(cmd *cobra.Command, args []string) {
-	var wg sync.WaitGroup
 	fmt.Println("Starting collection")
 	appCfg, err := OpenConfig("./config.json")
 	if err != nil {
 		fmt.Println("Failed to load config: ", err)
 		panic(1)
 	}
-
 	workers := appCfg.Workers
-
 	quit := make(chan struct{})
-	responseFeed := make(chan commandResponse)
-	printerDone := startPrinter(quit, responseFeed)
 	defer close(quit)
 
-	for _, workerAddress := range workers {
-		wg.Add(1)
-		go func(workerAddress string) {
-			addySlit := strings.Split(workerAddress, "@")
-			workersPass := addySlit[0]
-			workerHost := addySlit[1] + ":22"
-			fmt.Println("Getting data from:", workerHost)
-			defer wg.Done()
-			res := NewCommandResponse(workerHost)
-			config := &ssh.ClientConfig{
-				User: "root",
-				Auth: []ssh.AuthMethod{
-					ssh.Password(workersPass),
-				},
-				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-				Timeout:         1 * time.Second,
-			}
-			client, err := ssh.Dial("tcp", workerHost, config)
-			if err != nil {
-				msg := newErrorJson(err)
-				res.Data = []byte(msg)
-				responseFeed <- *res
-				return
-			}
+	workerConns := worker.NewConnectededWorkers(workers)
+	responseFeed := make(chan command.CommandResponse)
+	printerDone := startPrinter(quit, responseFeed)
 
-			// Each ClientConn can support multiple interactive sessions,
-			// represented by a Session.
-			session, err := client.NewSession()
-			if err != nil {
-				fmt.Println("Failed to create session: ", err)
-				panic(1)
-			}
-			defer session.Close()
-
-			// Once a Session is created, you can execute a single command on
-			// the remote side using the Run method.
-			var buff bytes.Buffer
-			session.Stdout = &buff
-
-			cmd := command.NewSummaryCommand()
-			if err := session.Run(cmd); err != nil {
-				fmt.Println("Failed to run: " + cmd + err.Error())
-				panic(1)
-			}
-
-			res.Data = bytes.Replace(buff.Bytes(), []byte("\x00"), []byte{}, -1)
-			responseFeed <- *res
-
-		}(workerAddress)
+	for _, conn := range workerConns {
+		cmd := command.NewSummaryCommand()
+		res, err := conn.SendCommand(cmd)
+		if err != nil {
+			res.Data = command.NewErrorJson(err)
+			continue
+		}
+		responseFeed <- *res
 	}
-	wg.Wait()
 	close(responseFeed)
 	<-printerDone
 }

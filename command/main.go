@@ -1,5 +1,7 @@
 package command
 
+import "fmt"
+
 type StatusResItem struct {
 	// TODO: move me
 	Status      string `json:"STATUS"`
@@ -48,6 +50,23 @@ type SummaryRes struct {
 type StatsRes struct {
 	Status []StatusResItem          `json:"STATUS"`
 	Stats  []map[string]interface{} `json:"STATS"`
+}
+
+type CommandResponse struct {
+	Data   []byte
+	Source string
+}
+
+func NewErrorJson(err error) []byte {
+	str := fmt.Sprint(`{ "error": "`, err.Error(), `"}`)
+	return []byte(str)
+}
+
+func NewCommandResponse(source string) *CommandResponse {
+	return &CommandResponse{
+		Data:   []byte{},
+		Source: source,
+	}
 }
 
 func NewSummaryCommand() string {
