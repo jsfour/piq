@@ -72,6 +72,23 @@ func startPrinter(quit chan struct{}, inputFeed chan command.CommandResponse) ch
 	return done
 }
 
+func startRawPrinter(quit chan struct{}, inputFeed chan command.CommandResponse) chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for res := range inputFeed {
+			select {
+			case <-quit:
+				return
+			default:
+				fmt.Println(res.Source)
+				fmt.Println("     ", fmt.Sprintf("%s", res.Data))
+			}
+		}
+	}()
+	return done
+}
+
 func getStats(cmd *cobra.Command, args []string) {
 	fmt.Println("Starting collection")
 	appCfg, err := OpenConfig("./config.json")
@@ -90,7 +107,7 @@ func getStats(cmd *cobra.Command, args []string) {
 	defer close(quit)
 
 	// TODO: Process error connections
-	workerConns, _ := worker.NewConnectededWorkers(workers)
+	workerConns, _ := worker.NewConnectededWorkerBatch(workers)
 	responseFeed := make(chan command.CommandResponse)
 	printerDone := startPrinter(quit, responseFeed)
 
@@ -107,34 +124,172 @@ func getStats(cmd *cobra.Command, args []string) {
 	<-printerDone
 }
 
-func killWorker(cmd *cobra.Command, args []string) {
-	fmt.Println("Killing worker not supported yet")
+func scaleWorkerUp(cmd *cobra.Command, args []string) {
+	fmt.Println("Worker scaling not supported")
+	// targetWorker := args[0]
+	// fmt.Println("Scaling up worker", targetWorker)
 	// appCfg, err := OpenConfig("./config.json")
 	// if err != nil {
 	// 	fmt.Println("Failed to load config: ", err)
 	// 	panic(1)
 	// }
-	// var targetWorkers string
-	// for _, worker := appCfg.Workers {
-	// 	if
+	// targetWorker = targetWorker + ":22"
+
+	// for _, rawWorkerHostname := range appCfg.Workers {
+	// 	currentWorker, err := worker.NewWorkerHostFromRaw(rawWorkerHostname)
+	// 	if err != nil {
+	// 		fmt.Println("Not able to scale worker")
+	// 		panic(1)
+	// 	}
+
+	// 	if currentWorker.Hostname != targetWorker {
+	// 		continue
+	// 	}
+
+	// 	for i := 0; i < 3; i++ {
+	// 		fmt.Println("    pool", i)
+	// 		// HACK: I dont need to reconnect every time
+	// 		// TODO: consolidate with the scaleUp
+
+	// 		workerConn, _ := worker.NewConnectedWorker(currentWorker)
+	// 		scaleCommand := command.NewScaleUpCommand(i)
+	// 		res, err := workerConn.SendCommand(scaleCommand)
+
+	// 		if err != nil {
+	// 			res.Data = command.NewErrorJson(err)
+	// 			continue
+	// 		}
+	// 		fmt.Printf("%s\n", res.Data)
+	// 		close(workerConn.Close)
+	// 	}
 	// }
 }
 
+func scaleDownWorker(cmd *cobra.Command, args []string) {
+	fmt.Println("Worker scaling not supported")
+	// targetWorker := args[0]
+	// appCfg, err := OpenConfig("./config.json")
+	// if err != nil {
+	// 	fmt.Println("Failed to load config: ", err)
+	// 	panic(1)
+	// }
+	// targetWorker = targetWorker + ":22"
+
+	// for _, rawWorkerHostname := range appCfg.Workers {
+	// 	currentWorker, err := worker.NewWorkerHostFromRaw(rawWorkerHostname)
+	// 	if err != nil {
+	// 		fmt.Println("Not able to scale worker")
+	// 		panic(1)
+	// 	}
+
+	// 	if currentWorker.Hostname != targetWorker {
+	// 		continue
+	// 	}
+
+	// 	for i := 0; i < 3; i++ {
+	// 		fmt.Println("    pool", i)
+	// 		// HACK: I dont need to reconnect every time
+	// 		// TODO: consolidate with the scaleDown
+
+	// 		workerConn, _ := worker.NewConnectedWorker(currentWorker)
+	// 		cmd := command.NewScaleDownCommand(i)
+	// 		fmt.Println("%v", cmd)
+
+	// 		res, err := workerConn.SendCommand(cmd)
+
+	// 		if err != nil {
+	// 			res.Data = command.NewErrorJson(err)
+	// 			continue
+	// 		}
+	// 		fmt.Printf("    %s\n", res.Data)
+	// 		close(workerConn.Close)
+	// 	}
+	// }
+}
+
+func killWorker(cmd *cobra.Command, args []string) {
+	targetWorker := args[0]
+	fmt.Println("Powering off worker", targetWorker)
+	appCfg, err := OpenConfig("./config.json")
+	if err != nil {
+		fmt.Println("Failed to load config: ", err)
+		panic(1)
+	}
+	targetWorker = targetWorker + ":22"
+
+	for _, rawWorkerHostname := range appCfg.Workers {
+		currentWorker, err := worker.NewWorkerHostFromRaw(rawWorkerHostname)
+		if err != nil {
+			fmt.Println("Not able to powerdown worker")
+			panic(1)
+		}
+
+		if currentWorker.Hostname != targetWorker {
+			continue
+		}
+
+		workerConn, _ := worker.NewConnectedWorker(currentWorker)
+		cmd := command.NewPowerOffCommand()
+		res, err := workerConn.SendCommand(cmd)
+		fmt.Printf("    %s\n", res.Data)
+		close(workerConn.Close)
+	}
+}
+
+func pruneWorkers(cmd *cobra.Command, args []string) {
+	fmt.Println("Prune not supported")
+	// TODO: find the weakest worker and kill it
+
+	// pruneTarget, err := strconv.Atoi(args[0])
+	// if err != nil {
+	// 	fmt.Println("Invalid prune value")
+	// 	panic(1)
+	// }
+	// fmt.Println("Powering workers worker", targetWorker)
+
+}
+
 func main() {
-	var stats = &cobra.Command{
+	stats := &cobra.Command{
 		Use:   "stats",
 		Short: "Pulls stats from workers",
 		Run:   getStats,
 	}
 
-	var kill = &cobra.Command{
+	scaleCmd := &cobra.Command{
+		Use:   "scale [command]",
+		Short: "Scale Command",
+	}
+
+	scaleUp := &cobra.Command{
+		Use:   "up [hostname]",
+		Short: "Scales worker up",
+		Args:  cobra.MinimumNArgs(1),
+		Run:   scaleWorkerUp,
+	}
+
+	scaledown := &cobra.Command{
+		Use:   "down [hostname]",
+		Short: "Scales worker down",
+		Args:  cobra.MinimumNArgs(1),
+		Run:   scaleDownWorker,
+	}
+
+	kill := &cobra.Command{
 		Use:   "kill [hostname]",
 		Short: "Kills worker",
+		Args:  cobra.MinimumNArgs(1),
 		Run:   killWorker,
 	}
 
-	var rootCmd = &cobra.Command{Use: "app"}
+	// TODO: should be able to restart worker or the whole cluster
+
+	rootCmd := &cobra.Command{Use: "app"}
 	rootCmd.AddCommand(stats)
 	rootCmd.AddCommand(kill)
+
+	rootCmd.AddCommand(scaleCmd)
+	scaleCmd.AddCommand(scaleUp)
+	scaleCmd.AddCommand(scaledown)
 	rootCmd.Execute()
 }

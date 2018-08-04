@@ -73,6 +73,24 @@ func NewSummaryCommand() string {
 	return `echo '{"command": "summary"}' | nc localhost 4028`
 }
 
+func NewRestartCommand() string {
+	return "/sbin/reboot"
+}
+
 func NewStatsCommand() string {
 	return `echo '{"command": "stats"}' | nc localhost 4028`
+}
+
+func NewScaleUpCommand(poolIndex int) string {
+	// TODO: probably should figure out the best command here
+	return fmt.Sprintf(`echo '{"command": "enablepool", "parameter": "%v"}' | nc localhost 4028`, poolIndex)
+}
+
+func NewPowerOffCommand() string {
+	return "/sbin/poweroff"
+}
+
+func NewScaleDownCommand(poolIndex int) string {
+	// Turns out disablepool doesnt do what I need
+	return fmt.Sprintf(`echo '{"command": "disablepool", "parameter": "%v"}' | nc localhost 4028`, poolIndex)
 }

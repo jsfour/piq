@@ -13,6 +13,7 @@ import (
 type WorkerConnection struct {
 	host    WorkerHost
 	session *ssh.Session
+	Close   chan struct{}
 }
 
 func (wc *WorkerConnection) SendCommand(cmd string) (*command.CommandResponse, error) {
@@ -20,7 +21,7 @@ func (wc *WorkerConnection) SendCommand(cmd string) (*command.CommandResponse, e
 	res := command.NewCommandResponse(wc.host.Hostname)
 	wc.session.Stdout = &buff
 	if err := wc.session.Run(cmd); err != nil {
-		fmt.Println(wc.host.Hostname, " failed to run: ", cmd, err.Error())
+		fmt.Println(wc.host.Hostname, "failed to run:", cmd, err.Error())
 		return res, err
 	}
 	res.Data = bytes.Replace(buff.Bytes(), []byte("\x00"), []byte{}, -1)
@@ -28,7 +29,7 @@ func (wc *WorkerConnection) SendCommand(cmd string) (*command.CommandResponse, e
 }
 
 func (wc *WorkerConnection) Start(host WorkerHost) (chan struct{}, error) {
-	quit := make(chan struct{})
+	wc.Close = make(chan struct{})
 	wc.host = host
 	fmt.Println(host.Hostname, " Connecting")
 	config := &ssh.ClientConfig{
@@ -42,7 +43,7 @@ func (wc *WorkerConnection) Start(host WorkerHost) (chan struct{}, error) {
 	}
 	client, err := ssh.Dial("tcp", wc.host.Hostname, config)
 	if err != nil {
-		return quit, err
+		return wc.Close, err
 	}
 
 	// Each ClientConn can support multiple interactive sessions,
@@ -50,20 +51,34 @@ func (wc *WorkerConnection) Start(host WorkerHost) (chan struct{}, error) {
 	session, err := client.NewSession()
 	if err != nil {
 		fmt.Println("Failed to create session: ", err)
-		return quit, err
+		return wc.Close, err
 	}
 
 	wc.session = session
 
 	go func() {
 		defer session.Close()
-		<-quit
+		<-wc.Close
 	}()
 
-	return quit, nil
+	return wc.Close, nil
 }
 
-func NewConnectededWorkers(workerHosts []WorkerHost) ([]*WorkerConnection, []*WorkerConnection) {
+func Stop() {
+
+}
+
+func NewConnectedWorker(workerHost WorkerHost) (*WorkerConnection, error) {
+	conn := WorkerConnection{}
+	_, err := conn.Start(workerHost)
+	if err != nil {
+		fmt.Println("Error connecting to", workerHost.Hostname)
+		return &conn, err
+	}
+	return &conn, nil
+}
+
+func NewConnectededWorkerBatch(workerHosts []WorkerHost) ([]*WorkerConnection, []*WorkerConnection) {
 	var wg sync.WaitGroup
 	var workerConns []*WorkerConnection
 	var workerConnErrs []*WorkerConnection
@@ -80,13 +95,11 @@ func NewConnectededWorkers(workerHosts []WorkerHost) ([]*WorkerConnection, []*Wo
 		wg.Add(1)
 		go func(host WorkerHost) {
 			defer wg.Done()
-			conn := WorkerConnection{}
-			_, err := conn.Start(host)
+			conn, err := NewConnectedWorker(host)
 			if err != nil {
-				fmt.Println("Error connecting to", host.Hostname)
 				return
 			}
-			conPipeline <- &conn
+			conPipeline <- conn
 		}(host)
 	}
 	wg.Wait()
