@@ -22,9 +22,11 @@ func (wc *WorkerConnection) SendCommand(cmd string) (*command.CommandResponse, e
 	wc.session.Stdout = &buff
 	if err := wc.session.Run(cmd); err != nil {
 		fmt.Println(wc.host.Hostname, "failed to run:", cmd, err.Error())
+		res.Status = command.Failed
 		return res, err
 	}
 	res.Data = bytes.Replace(buff.Bytes(), []byte("\x00"), []byte{}, -1)
+	res.Status = command.Success
 	return res, nil
 }
 

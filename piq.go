@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/user"
 	"strings"
+	"sync/atomic"
 
 	"github.com/jsmootiv/piq/command"
 	"github.com/jsmootiv/piq/worker"
@@ -43,6 +44,23 @@ func OpenConfig(location string) (*config, error) {
 	return cfg, nil
 }
 
+func printResponse(res command.CommandResponse) error {
+	var myRes command.SummaryRes
+	err := json.Unmarshal(res.Data, &myRes)
+	if err != nil {
+		fmt.Println(res.Source, "Error parsing", err)
+		return err
+	}
+	if myRes.Error != "" {
+		fmt.Println(res.Source, "Error", myRes.Error)
+		return nil
+	}
+	fmt.Println("        Average  Hashrate", myRes.Summary[0].GhsAv)
+	fmt.Println("        5sec  	  Hashrate", myRes.Summary[0].Ghs5s)
+	fmt.Println("        Hardware Errors", myRes.Summary[0].HardwareErrors)
+	return nil
+}
+
 func startPrinter(quit chan struct{}, inputFeed chan command.CommandResponse) chan struct{} {
 	done := make(chan struct{})
 	go func() {
@@ -52,21 +70,7 @@ func startPrinter(quit chan struct{}, inputFeed chan command.CommandResponse) ch
 			case <-quit:
 				return
 			default:
-				var myRes command.SummaryRes
-				err := json.Unmarshal(res.Data, &myRes)
-				if err != nil {
-					fmt.Println(res.Source, "Error parsing", err)
-					continue
-				}
-				if myRes.Error != "" {
-					fmt.Println(res.Source, "Error", myRes.Error)
-					continue
-				}
-				fmt.Println(res.Source)
-				fmt.Println("        Average  Hashrate", myRes.Summary[0].GhsAv)
-				fmt.Println("        5sec  	  Hashrate", myRes.Summary[0].Ghs5s)
-				fmt.Println("        Hardware Errors", myRes.Summary[0].HardwareErrors)
-
+				printResponse(res)
 			}
 		}
 	}()
@@ -91,14 +95,16 @@ func startRawPrinter(quit chan struct{}, inputFeed chan command.CommandResponse)
 }
 
 func getStats(cmd *cobra.Command, args []string) {
-	fmt.Println("Starting collection")
+	fmt.Println("Starting stats collection")
+	// var wg sync.WaitGroup
+	var runningWorkers int32
 	appCfg, err := OpenConfig("./config.json")
 	if err != nil {
 		fmt.Println("Failed to load config: ", err)
 		panic(1)
 	}
 
-	workers, err := worker.NewWorkerHostBatch(appCfg.Workers)
+	workerHosts, err := worker.NewWorkerHostBatch(appCfg.Workers)
 	if err != nil {
 		fmt.Println("Failed to read workers: ", err)
 		panic(1)
@@ -107,30 +113,36 @@ func getStats(cmd *cobra.Command, args []string) {
 	quit := make(chan struct{})
 	defer close(quit)
 
-	// TODO: Process error connections
-	workerConns, failedHosts := worker.NewConnectededWorkerBatch(workers)
 	responseFeed := make(chan command.CommandResponse)
 	printerDone := startPrinter(quit, responseFeed)
 
-	for _, host := range failedHosts {
-		res := command.CommandResponse{
-			Data:   []byte("Error Connecting"),
-			Source: host.Hostname,
-		}
-		responseFeed <- res
-	}
+	for _, wkrHost := range workerHosts {
+		// wg.Add(1)
+		// go func(myHost worker.WorkerHost) {
+		// defer wg.Done()
 
-	for _, conn := range workerConns {
+		workerConn, err := worker.NewConnectedWorker(wkrHost)
+		defer worker.Stop()
+
+		if err != nil {
+			fmt.Println("Failed connecting to %v\n", wkrHost.Hostname)
+			return
+		}
 		cmd := command.NewSummaryCommand()
-		res, err := conn.SendCommand(cmd)
+		res, err := workerConn.SendCommand(cmd)
 		if err != nil {
 			res.Data = command.NewErrorJson(err)
-			continue
 		}
-		responseFeed <- *res
+		if res.Status > command.Failed {
+			atomic.AddInt32(&runningWorkers, 1)
+		}
+		printResponse(*res)
+		// }(wkrHost)
 	}
+	// wg.Wait()
 	close(responseFeed)
 	<-printerDone
+	fmt.Printf("There are %v of %v workers running\n", atomic.LoadInt32(&runningWorkers), len(appCfg.Workers))
 }
 
 func scaleWorkerUp(cmd *cobra.Command, args []string) {

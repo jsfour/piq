@@ -2,6 +2,13 @@ package command
 
 import "fmt"
 
+type ResponseStatus int
+
+const (
+	Failed  ResponseStatus = iota
+	Success ResponseStatus = iota
+)
+
 type StatusResItem struct {
 	// TODO: move me
 	Status      string `json:"STATUS"`
@@ -55,6 +62,7 @@ type StatsRes struct {
 type CommandResponse struct {
 	Data   []byte
 	Source string
+	Status ResponseStatus
 }
 
 func NewErrorJson(err error) []byte {
