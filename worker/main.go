@@ -78,16 +78,23 @@ func NewConnectedWorker(workerHost WorkerHost) (*WorkerConnection, error) {
 	return &conn, nil
 }
 
-func NewConnectededWorkerBatch(workerHosts []WorkerHost) ([]*WorkerConnection, []*WorkerConnection) {
+func NewConnectededWorkerBatch(workerHosts []WorkerHost) ([]*WorkerConnection, []WorkerHost) {
 	var wg sync.WaitGroup
 	var workerConns []*WorkerConnection
-	var workerConnErrs []*WorkerConnection
+	var hostsNotConnected []WorkerHost
 
 	conPipeline := make(chan *WorkerConnection)
+	errPipeline := make(chan WorkerHost)
 
 	go func() {
 		for conn := range conPipeline {
 			workerConns = append(workerConns, conn)
+		}
+	}()
+
+	go func() {
+		for host := range errPipeline {
+			hostsNotConnected = append(hostsNotConnected, host)
 		}
 	}()
 
@@ -97,6 +104,7 @@ func NewConnectededWorkerBatch(workerHosts []WorkerHost) ([]*WorkerConnection, [
 			defer wg.Done()
 			conn, err := NewConnectedWorker(host)
 			if err != nil {
+				errPipeline <- host
 				return
 			}
 			conPipeline <- conn
@@ -104,5 +112,7 @@ func NewConnectededWorkerBatch(workerHosts []WorkerHost) ([]*WorkerConnection, [
 	}
 	wg.Wait()
 	close(conPipeline)
-	return workerConns, workerConnErrs
+	close(errPipeline)
+
+	return workerConns, hostsNotConnected
 }

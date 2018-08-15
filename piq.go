@@ -107,9 +107,17 @@ func getStats(cmd *cobra.Command, args []string) {
 	defer close(quit)
 
 	// TODO: Process error connections
-	workerConns, _ := worker.NewConnectededWorkerBatch(workers)
+	workerConns, failedHosts := worker.NewConnectededWorkerBatch(workers)
 	responseFeed := make(chan command.CommandResponse)
 	printerDone := startPrinter(quit, responseFeed)
+
+	for _, host := range failedHosts {
+		res := command.CommandResponse{
+			Data:   []byte("Error Connecting"),
+			Source: host.Hostname,
+		}
+		responseFeed <- res
+	}
 
 	for _, conn := range workerConns {
 		cmd := command.NewSummaryCommand()
@@ -215,6 +223,7 @@ func killWorker(cmd *cobra.Command, args []string) {
 		fmt.Println("Failed to load config: ", err)
 		panic(1)
 	}
+	// TODO: allow to poweer off all workers
 	targetWorker = targetWorker + ":22"
 
 	for _, rawWorkerHostname := range appCfg.Workers {
