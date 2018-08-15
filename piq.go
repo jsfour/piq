@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/user"
+	"strings"
 
 	"github.com/jsmootiv/piq/command"
 	"github.com/jsmootiv/piq/worker"
@@ -216,15 +217,19 @@ func scaleDownWorker(cmd *cobra.Command, args []string) {
 }
 
 func killWorker(cmd *cobra.Command, args []string) {
-	targetWorker := args[0]
-	fmt.Println("Powering off worker", targetWorker)
+	targetWorker := strings.ToLower(args[0])
+	var killList []worker.WorkerHost
+	killCount := 0
+	killAll := (targetWorker == "all")
 	appCfg, err := OpenConfig("./config.json")
 	if err != nil {
 		fmt.Println("Failed to load config: ", err)
 		panic(1)
 	}
-	// TODO: allow to poweer off all workers
-	targetWorker = targetWorker + ":22"
+
+	if killAll {
+		fmt.Printf("Killing all %v workers\n", len(appCfg.Workers))
+	}
 
 	for _, rawWorkerHostname := range appCfg.Workers {
 		currentWorker, err := worker.NewWorkerHostFromRaw(rawWorkerHostname)
@@ -232,17 +237,35 @@ func killWorker(cmd *cobra.Command, args []string) {
 			fmt.Println("Not able to powerdown worker")
 			panic(1)
 		}
+		if killAll {
+			killList = append(killList, currentWorker)
+			continue
+		}
+
+		targetWorker = targetWorker + ":22"
 
 		if currentWorker.Hostname != targetWorker {
 			continue
 		}
+	}
 
+	for _, currentWorker := range killList {
+		fmt.Println("Powering off worker", currentWorker.Hostname)
 		workerConn, _ := worker.NewConnectedWorker(currentWorker)
 		cmd := command.NewPowerOffCommand()
 		res, err := workerConn.SendCommand(cmd)
-		fmt.Printf("    %s\n", res.Data)
+		err = nil
+		if err != nil {
+			fmt.Printf("    %s\n", err)
+		} else {
+			killCount++
+			fmt.Printf("    %s\n", res.Data)
+		}
 		close(workerConn.Close)
 	}
+
+	fmt.Printf("Killed %v workers\n", killCount)
+
 }
 
 func pruneWorkers(cmd *cobra.Command, args []string) {
