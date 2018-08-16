@@ -64,11 +64,18 @@ func printResponse(host worker.WorkerHost, rawRes command.CommandResponse) error
 	return nil
 }
 
-func printStatsWorker(responseFeed chan command.CommandResponse) chan struct{} {
+func formatHashrateString(hRate float64) string {
+	return fmt.Sprintf("%.4f", hRate/1e3)
+}
+
+func printStatsWorker(responseFeed chan command.CommandResponse, downFeed chan worker.WorkerHost) chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		var tableData [][]string
+		var totalAvgHashrate float64
+		var totalHardwareErrors int
+
 		for rawRes := range responseFeed {
 			var myRes command.SummaryRes
 			err := json.Unmarshal(rawRes.Data, &myRes)
@@ -80,18 +87,33 @@ func printStatsWorker(responseFeed chan command.CommandResponse) chan struct{} {
 				fmt.Println(rawRes.Source, "Error", myRes.Error)
 				continue
 			}
+			totalAvgHashrate += myRes.Summary[0].GhsAv
+			totalHardwareErrors += myRes.Summary[0].HardwareErrors
 
 			row := []string{
+				"Up",
 				rawRes.Source,
-				fmt.Sprintf("%.4f", myRes.Summary[0].GhsAv),
+				formatHashrateString(myRes.Summary[0].GhsAv),
 				myRes.Summary[0].Ghs5s,
 				strconv.Itoa(myRes.Summary[0].HardwareErrors),
 			}
 			tableData = append(tableData, row)
 		}
 
+		for wkr := range downFeed {
+			row := []string{
+				"Down",
+				wkr.Hostname,
+				"0",
+				"0",
+				"0",
+			}
+			tableData = append(tableData, row)
+		}
+
 		table := tablewriter.NewWriter(os.Stdout)
-		table.SetHeader([]string{"Worker", "Avg Hashrate", "5sec Hashrate", "Hardware Errs"})
+		table.SetHeader([]string{"Status", "Worker", "Avg Hashrate (gh/s)", "5sec Hashrate", "Hardware Errs"})
+		table.SetFooter([]string{"Total", "", formatHashrateString(totalAvgHashrate), "", ""})
 
 		for _, v := range tableData {
 			table.Append(v)
@@ -116,7 +138,7 @@ func getStats(cmd *cobra.Command, args []string) {
 	runningWorkers := make(chan *worker.WorkerConnection, len(workerHosts))
 	failedWorkers := make(chan worker.WorkerHost, len(workerHosts))
 	responseFeed := make(chan command.CommandResponse, len(workerHosts))
-	printDone := printStatsWorker(responseFeed)
+	printDone := printStatsWorker(responseFeed, failedWorkers)
 	if err != nil {
 		fmt.Println("Failed to read workers: ", err)
 		panic(1)
@@ -140,7 +162,8 @@ func getStats(cmd *cobra.Command, args []string) {
 	close(runningWorkers)
 	close(failedWorkers)
 	fmt.Printf("There are %v of %v workers running\n", len(runningWorkers), len(appCfg.Workers))
-	fmt.Printf("%v workers up:\n", len(runningWorkers))
+	fmt.Printf("%v workers up\n", len(runningWorkers))
+	fmt.Printf("%v workers down\n", len(failedWorkers))
 	for conn := range runningWorkers {
 		cmdWg.Add(1)
 		go func(conn *worker.WorkerConnection) {
@@ -157,12 +180,6 @@ func getStats(cmd *cobra.Command, args []string) {
 	cmdWg.Wait()
 	close(responseFeed)
 	<-printDone
-
-	fmt.Printf("%v workers down:\n", len(failedWorkers))
-	for wkr := range failedWorkers {
-		fmt.Println(wkr.Hostname)
-	}
-
 }
 
 func scaleWorkerUp(cmd *cobra.Command, args []string) {
