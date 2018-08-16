@@ -46,24 +46,6 @@ func OpenConfig(location string) (*config, error) {
 	return cfg, nil
 }
 
-func printResponse(host worker.WorkerHost, rawRes command.CommandResponse) error {
-	var myRes command.SummaryRes
-	err := json.Unmarshal(rawRes.Data, &myRes)
-	if err != nil {
-		fmt.Println(rawRes.Source, "Error parsing", err)
-		return err
-	}
-	if myRes.Error != "" {
-		fmt.Println(rawRes.Source, "Error", myRes.Error)
-		return nil
-	}
-	fmt.Println(host.Hostname)
-	fmt.Println("        Average  Hashrate", myRes.Summary[0].GhsAv)
-	fmt.Println("        5sec  	  Hashrate", myRes.Summary[0].Ghs5s)
-	fmt.Println("        Hardware Errors", myRes.Summary[0].HardwareErrors)
-	return nil
-}
-
 func formatHashrateString(hRate float64) string {
 	return fmt.Sprintf("%.4f", hRate/1e3)
 }
