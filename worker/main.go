@@ -11,17 +11,17 @@ import (
 )
 
 type WorkerConnection struct {
-	host    WorkerHost
+	Host    WorkerHost
 	session *ssh.Session
 	Close   chan struct{}
 }
 
 func (wc *WorkerConnection) SendCommand(cmd string) (*command.CommandResponse, error) {
 	var buff bytes.Buffer
-	res := command.NewCommandResponse(wc.host.Hostname)
+	res := command.NewCommandResponse(wc.Host.Hostname)
 	wc.session.Stdout = &buff
 	if err := wc.session.Run(cmd); err != nil {
-		fmt.Println(wc.host.Hostname, "failed to run:", cmd, err.Error())
+		fmt.Println(wc.Host.Hostname, "failed to run:", cmd, err.Error())
 		res.Status = command.Failed
 		return res, err
 	}
@@ -32,18 +32,17 @@ func (wc *WorkerConnection) SendCommand(cmd string) (*command.CommandResponse, e
 
 func (wc *WorkerConnection) Start(host WorkerHost) (chan struct{}, error) {
 	wc.Close = make(chan struct{})
-	wc.host = host
-	fmt.Println(host.Hostname, " Connecting")
+	wc.Host = host
 	config := &ssh.ClientConfig{
-		User: wc.host.Username,
+		User: wc.Host.Username,
 		Auth: []ssh.AuthMethod{
-			ssh.Password(wc.host.Password),
+			ssh.Password(wc.Host.Password),
 		},
 		// TODO: fix the host key callback
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         1 * time.Second,
 	}
-	client, err := ssh.Dial("tcp", wc.host.Hostname, config)
+	client, err := ssh.Dial("tcp", wc.Host.Hostname, config)
 	if err != nil {
 		return wc.Close, err
 	}
@@ -74,7 +73,6 @@ func NewConnectedWorker(workerHost WorkerHost) (*WorkerConnection, error) {
 	conn := WorkerConnection{}
 	_, err := conn.Start(workerHost)
 	if err != nil {
-		fmt.Println("Error connecting to", workerHost.Hostname)
 		return &conn, err
 	}
 	return &conn, nil

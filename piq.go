@@ -8,7 +8,7 @@ import (
 	"os"
 	"os/user"
 	"strings"
-	"sync/atomic"
+	"sync"
 
 	"github.com/jsmootiv/piq/command"
 	"github.com/jsmootiv/piq/worker"
@@ -44,7 +44,7 @@ func OpenConfig(location string) (*config, error) {
 	return cfg, nil
 }
 
-func printResponse(rawRes command.CommandResponse) error {
+func printResponse(host worker.WorkerHost, rawRes command.CommandResponse) error {
 	var myRes command.SummaryRes
 	err := json.Unmarshal(rawRes.Data, &myRes)
 	if err != nil {
@@ -55,6 +55,7 @@ func printResponse(rawRes command.CommandResponse) error {
 		fmt.Println(rawRes.Source, "Error", myRes.Error)
 		return nil
 	}
+	fmt.Println(host.Hostname)
 	fmt.Println("        Average  Hashrate", myRes.Summary[0].GhsAv)
 	fmt.Println("        5sec  	  Hashrate", myRes.Summary[0].Ghs5s)
 	fmt.Println("        Hardware Errors", myRes.Summary[0].HardwareErrors)
@@ -64,7 +65,7 @@ func printResponse(rawRes command.CommandResponse) error {
 func getStats(cmd *cobra.Command, args []string) {
 	fmt.Println("Starting stats collection")
 	// var wg sync.WaitGroup
-	var runningWorkers int32
+	var wg sync.WaitGroup
 	appCfg, err := OpenConfig("./config.json")
 	if err != nil {
 		fmt.Println("Failed to load config: ", err)
@@ -72,42 +73,48 @@ func getStats(cmd *cobra.Command, args []string) {
 	}
 
 	workerHosts, err := worker.NewWorkerHostBatch(appCfg.Workers)
+	runningWorkers := make(chan *worker.WorkerConnection, len(workerHosts))
+	failedWorkers := make(chan worker.WorkerHost, len(workerHosts))
 	if err != nil {
 		fmt.Println("Failed to read workers: ", err)
 		panic(1)
 	}
 
-	quit := make(chan struct{})
-	defer close(quit)
-
-	responseFeed := make(chan command.CommandResponse)
-
 	for _, wkrHost := range workerHosts {
-		// wg.Add(1)
-		// go func(myHost worker.WorkerHost) {
-		// defer wg.Done()
+		wg.Add(1)
+		go func(wkrHost worker.WorkerHost) {
+			defer wg.Done()
+			workerConn, err := worker.NewConnectedWorker(wkrHost)
 
-		workerConn, err := worker.NewConnectedWorker(wkrHost)
+			if err != nil {
+				failedWorkers <- wkrHost
+				return
+			}
+			runningWorkers <- workerConn
+		}(wkrHost)
+	}
+
+	wg.Wait()
+	close(runningWorkers)
+	close(failedWorkers)
+	fmt.Printf("There are %v of %v workers running\n", len(runningWorkers), len(appCfg.Workers))
+	fmt.Println("-----")
+	fmt.Printf("%v running workers:\n", len(runningWorkers))
+	for conn := range runningWorkers {
 		defer worker.Stop()
-
-		if err != nil {
-			fmt.Println("Failed connecting to %v\n", wkrHost.Hostname)
-			return
-		}
 		cmd := command.NewSummaryCommand()
-		res, err := workerConn.SendCommand(cmd)
+		res, err := conn.SendCommand(cmd)
 		if err != nil {
 			res.Data = command.NewErrorJson(err)
 		}
-		if res.Status > command.Failed {
-			atomic.AddInt32(&runningWorkers, 1)
-		}
-		printResponse(*res)
-		// }(wkrHost)
+		printResponse(conn.Host, *res)
 	}
-	// wg.Wait()
-	close(responseFeed)
-	fmt.Printf("There are %v of %v workers running\n", atomic.LoadInt32(&runningWorkers), len(appCfg.Workers))
+	fmt.Println("-----")
+	fmt.Printf("%v failed workers:\n", len(failedWorkers))
+	for wkr := range failedWorkers {
+		fmt.Println(wkr.Hostname)
+	}
+
 }
 
 func scaleWorkerUp(cmd *cobra.Command, args []string) {
@@ -197,35 +204,37 @@ func killWorker(cmd *cobra.Command, args []string) {
 	targetWorker := strings.ToLower(args[0])
 	var killList []worker.WorkerHost
 	killCount := 0
-	killAll := (targetWorker == "all")
 	appCfg, err := OpenConfig("./config.json")
 	if err != nil {
 		fmt.Println("Failed to load config: ", err)
 		panic(1)
 	}
 
-	if killAll {
+	if targetWorker == "all" {
 		fmt.Printf("Killing all %v workers\n", len(appCfg.Workers))
-	}
-
-	for _, rawWorkerHostname := range appCfg.Workers {
-		currentWorker, err := worker.NewWorkerHostFromRaw(rawWorkerHostname)
-		if err != nil {
-			fmt.Println("Not able to powerdown worker")
-			panic(1)
-		}
-		if killAll {
+		for _, rawWorkerHostname := range appCfg.Workers {
+			currentWorker, err := worker.NewWorkerHostFromRaw(rawWorkerHostname)
+			if err != nil {
+				fmt.Println(err)
+				panic(1)
+			}
 			killList = append(killList, currentWorker)
-			continue
 		}
+	} else {
+		targetWorker := targetWorker + ":22"
+		for _, rawWorkerHostname := range appCfg.Workers {
+			currentWorker, err := worker.NewWorkerHostFromRaw(rawWorkerHostname)
+			if err != nil {
+				fmt.Println("Not able to powerdown worker")
+				panic(1)
+			}
 
-		targetWorker = targetWorker + ":22"
-
-		if currentWorker.Hostname != targetWorker {
-			continue
+			if currentWorker.Hostname == targetWorker {
+				killList = append(killList, currentWorker)
+				break
+			}
 		}
 	}
-
 	for _, currentWorker := range killList {
 		fmt.Println("Powering off worker", currentWorker.Hostname)
 		workerConn, _ := worker.NewConnectedWorker(currentWorker)
