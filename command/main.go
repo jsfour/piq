@@ -52,6 +52,7 @@ type SummaryRes struct {
 	Status  []StatusResItem  `json:"STATUS"`
 	Summary []SummaryResItem `json:"SUMMARY"`
 	Error   string           `json:"error";omitempty`
+	Source  string
 }
 
 type StatsRes struct {

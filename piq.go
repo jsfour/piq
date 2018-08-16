@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/user"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -54,6 +55,7 @@ func printStatsWorker(responseFeed chan command.CommandResponse, downFeed chan w
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		var summaryResponses []command.SummaryRes
 		var tableData [][]string
 		var totalAvgHashrate float64
 		var totalHardwareErrors int
@@ -65,16 +67,22 @@ func printStatsWorker(responseFeed chan command.CommandResponse, downFeed chan w
 				fmt.Println(rawRes.Source, "Error parsing", err)
 				continue
 			}
+			myRes.Source = rawRes.Source
 			if myRes.Error != "" {
-				fmt.Println(rawRes.Source, "Error", myRes.Error)
+				fmt.Println(myRes.Source, "Error", myRes.Error)
 				continue
 			}
+			summaryResponses = append(summaryResponses, myRes)
+		}
+
+		sort.Sort(sort.Reverse(command.ByHashrate(summaryResponses)))
+
+		for _, myRes := range summaryResponses {
 			totalAvgHashrate += myRes.Summary[0].GhsAv
 			totalHardwareErrors += myRes.Summary[0].HardwareErrors
-
 			row := []string{
 				"Up",
-				rawRes.Source,
+				myRes.Source,
 				formatHashrateString(myRes.Summary[0].GhsAv),
 				myRes.Summary[0].Ghs5s,
 				strconv.Itoa(myRes.Summary[0].HardwareErrors),
@@ -94,7 +102,7 @@ func printStatsWorker(responseFeed chan command.CommandResponse, downFeed chan w
 		}
 
 		table := tablewriter.NewWriter(os.Stdout)
-		table.SetHeader([]string{"Status", "Worker", "Avg Hashrate (gh/s)", "5sec Hashrate", "Hardware Errs"})
+		table.SetHeader([]string{"Status", "Worker", "Avg Hashrate (th/s)", "5sec Hashrate", "Hardware Errs"})
 		table.SetFooter([]string{"Total", "", formatHashrateString(totalAvgHashrate), "", ""})
 
 		for _, v := range tableData {
@@ -143,9 +151,7 @@ func getStats(cmd *cobra.Command, args []string) {
 	hostWg.Wait()
 	close(runningWorkers)
 	close(failedWorkers)
-	fmt.Printf("There are %v of %v workers running\n", len(runningWorkers), len(appCfg.Workers))
-	fmt.Printf("%v workers up\n", len(runningWorkers))
-	fmt.Printf("%v workers down\n", len(failedWorkers))
+	fmt.Printf("%v workers up, %v workers down\n", len(runningWorkers), len(failedWorkers))
 	for conn := range runningWorkers {
 		cmdWg.Add(1)
 		go func(conn *worker.WorkerConnection) {
