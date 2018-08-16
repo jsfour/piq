@@ -44,54 +44,21 @@ func OpenConfig(location string) (*config, error) {
 	return cfg, nil
 }
 
-func printResponse(res command.CommandResponse) error {
+func printResponse(rawRes command.CommandResponse) error {
 	var myRes command.SummaryRes
-	err := json.Unmarshal(res.Data, &myRes)
+	err := json.Unmarshal(rawRes.Data, &myRes)
 	if err != nil {
-		fmt.Println(res.Source, "Error parsing", err)
+		fmt.Println(rawRes.Source, "Error parsing", err)
 		return err
 	}
 	if myRes.Error != "" {
-		fmt.Println(res.Source, "Error", myRes.Error)
+		fmt.Println(rawRes.Source, "Error", myRes.Error)
 		return nil
 	}
 	fmt.Println("        Average  Hashrate", myRes.Summary[0].GhsAv)
 	fmt.Println("        5sec  	  Hashrate", myRes.Summary[0].Ghs5s)
 	fmt.Println("        Hardware Errors", myRes.Summary[0].HardwareErrors)
 	return nil
-}
-
-func startPrinter(quit chan struct{}, inputFeed chan command.CommandResponse) chan struct{} {
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for res := range inputFeed {
-			select {
-			case <-quit:
-				return
-			default:
-				printResponse(res)
-			}
-		}
-	}()
-	return done
-}
-
-func startRawPrinter(quit chan struct{}, inputFeed chan command.CommandResponse) chan struct{} {
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for res := range inputFeed {
-			select {
-			case <-quit:
-				return
-			default:
-				fmt.Println(res.Source)
-				fmt.Println("     ", fmt.Sprintf("%s", res.Data))
-			}
-		}
-	}()
-	return done
 }
 
 func getStats(cmd *cobra.Command, args []string) {
@@ -114,7 +81,6 @@ func getStats(cmd *cobra.Command, args []string) {
 	defer close(quit)
 
 	responseFeed := make(chan command.CommandResponse)
-	printerDone := startPrinter(quit, responseFeed)
 
 	for _, wkrHost := range workerHosts {
 		// wg.Add(1)
@@ -141,7 +107,6 @@ func getStats(cmd *cobra.Command, args []string) {
 	}
 	// wg.Wait()
 	close(responseFeed)
-	<-printerDone
 	fmt.Printf("There are %v of %v workers running\n", atomic.LoadInt32(&runningWorkers), len(appCfg.Workers))
 }
 
