@@ -7,11 +7,13 @@ import (
 	"io/ioutil"
 	"os"
 	"os/user"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/jsmootiv/piq/command"
 	"github.com/jsmootiv/piq/worker"
+	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 )
 
@@ -62,10 +64,48 @@ func printResponse(host worker.WorkerHost, rawRes command.CommandResponse) error
 	return nil
 }
 
+func printStatsWorker(responseFeed chan command.CommandResponse) chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var tableData [][]string
+		for rawRes := range responseFeed {
+			var myRes command.SummaryRes
+			err := json.Unmarshal(rawRes.Data, &myRes)
+			if err != nil {
+				fmt.Println(rawRes.Source, "Error parsing", err)
+				continue
+			}
+			if myRes.Error != "" {
+				fmt.Println(rawRes.Source, "Error", myRes.Error)
+				continue
+			}
+
+			row := []string{
+				rawRes.Source,
+				fmt.Sprintf("%.4f", myRes.Summary[0].GhsAv),
+				myRes.Summary[0].Ghs5s,
+				strconv.Itoa(myRes.Summary[0].HardwareErrors),
+			}
+			tableData = append(tableData, row)
+		}
+
+		table := tablewriter.NewWriter(os.Stdout)
+		table.SetHeader([]string{"Worker", "Avg Hashrate", "5sec Hashrate", "Hardware Errs"})
+
+		for _, v := range tableData {
+			table.Append(v)
+		}
+		table.Render() // Send output
+	}()
+	return done
+}
+
 func getStats(cmd *cobra.Command, args []string) {
 	fmt.Println("Starting stats collection")
-	// var wg sync.WaitGroup
-	var wg sync.WaitGroup
+	var hostWg sync.WaitGroup
+	var cmdWg sync.WaitGroup
+
 	appCfg, err := OpenConfig("./config.json")
 	if err != nil {
 		fmt.Println("Failed to load config: ", err)
@@ -75,15 +115,17 @@ func getStats(cmd *cobra.Command, args []string) {
 	workerHosts, err := worker.NewWorkerHostBatch(appCfg.Workers)
 	runningWorkers := make(chan *worker.WorkerConnection, len(workerHosts))
 	failedWorkers := make(chan worker.WorkerHost, len(workerHosts))
+	responseFeed := make(chan command.CommandResponse, len(workerHosts))
+	printDone := printStatsWorker(responseFeed)
 	if err != nil {
 		fmt.Println("Failed to read workers: ", err)
 		panic(1)
 	}
 
 	for _, wkrHost := range workerHosts {
-		wg.Add(1)
+		hostWg.Add(1)
 		go func(wkrHost worker.WorkerHost) {
-			defer wg.Done()
+			defer hostWg.Done()
 			workerConn, err := worker.NewConnectedWorker(wkrHost)
 
 			if err != nil {
@@ -94,23 +136,29 @@ func getStats(cmd *cobra.Command, args []string) {
 		}(wkrHost)
 	}
 
-	wg.Wait()
+	hostWg.Wait()
 	close(runningWorkers)
 	close(failedWorkers)
 	fmt.Printf("There are %v of %v workers running\n", len(runningWorkers), len(appCfg.Workers))
-	fmt.Println("-----")
-	fmt.Printf("%v running workers:\n", len(runningWorkers))
+	fmt.Printf("%v workers up:\n", len(runningWorkers))
 	for conn := range runningWorkers {
-		defer worker.Stop()
-		cmd := command.NewSummaryCommand()
-		res, err := conn.SendCommand(cmd)
-		if err != nil {
-			res.Data = command.NewErrorJson(err)
-		}
-		printResponse(conn.Host, *res)
+		cmdWg.Add(1)
+		go func(conn *worker.WorkerConnection) {
+			defer worker.Stop()
+			cmd := command.NewSummaryCommand()
+			res, err := conn.SendCommand(cmd)
+			if err != nil {
+				res.Data = command.NewErrorJson(err)
+			}
+			responseFeed <- *res
+			cmdWg.Done()
+		}(conn)
 	}
-	fmt.Println("-----")
-	fmt.Printf("%v failed workers:\n", len(failedWorkers))
+	cmdWg.Wait()
+	close(responseFeed)
+	<-printDone
+
+	fmt.Printf("%v workers down:\n", len(failedWorkers))
 	for wkr := range failedWorkers {
 		fmt.Println(wkr.Hostname)
 	}
