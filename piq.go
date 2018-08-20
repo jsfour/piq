@@ -256,7 +256,6 @@ func scaleDownWorker(cmd *cobra.Command, args []string) {
 func killWorker(cmd *cobra.Command, args []string) {
 	targetWorker := strings.ToLower(args[0])
 	var killList []worker.WorkerHost
-	killCount := 0
 	appCfg, err := OpenConfig("./config.json")
 	if err != nil {
 		fmt.Println("Failed to load config: ", err)
@@ -288,23 +287,10 @@ func killWorker(cmd *cobra.Command, args []string) {
 			}
 		}
 	}
-	for _, currentWorker := range killList {
-		fmt.Println("Powering off worker", currentWorker.Hostname)
-		workerConn, _ := worker.NewConnectedWorker(currentWorker)
-		cmd := command.NewPowerOffCommand()
-		res, err := workerConn.SendCommand(cmd)
-		err = nil
-		if err != nil {
-			fmt.Printf("    %s\n", err)
-		} else {
-			killCount++
-			fmt.Printf("    %s\n", res.Data)
-		}
-		close(workerConn.Close)
-	}
+	successKills, errKills := worker.KillWorkers(killList)
 
-	fmt.Printf("Killed %v workers\n", killCount)
-
+	fmt.Printf("Killed %v workers\n", len(successKills))
+	fmt.Printf("%v workers not killed\n", len(errKills))
 }
 
 func pruneWorkers(cmd *cobra.Command, args []string) {
