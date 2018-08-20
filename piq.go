@@ -155,7 +155,7 @@ func getStats(cmd *cobra.Command, args []string) {
 	for conn := range runningWorkers {
 		cmdWg.Add(1)
 		go func(conn *worker.WorkerConnection) {
-			defer worker.Stop()
+			close(conn.Close)
 			cmd := command.NewSummaryCommand()
 			res, err := conn.SendCommand(cmd)
 			if err != nil {
