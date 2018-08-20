@@ -65,10 +65,6 @@ func (wc *WorkerConnection) Start(host WorkerHost) (chan struct{}, error) {
 	return wc.Close, nil
 }
 
-func Stop() {
-
-}
-
 func NewConnectedWorker(workerHost WorkerHost) (*WorkerConnection, error) {
 	conn := WorkerConnection{}
 	_, err := conn.Start(workerHost)
