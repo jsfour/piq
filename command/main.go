@@ -95,6 +95,10 @@ func NewScaleUpCommand(poolIndex int) string {
 	return fmt.Sprintf(`echo '{"command": "enablepool", "parameter": "%v"}' | nc localhost 4028`, poolIndex)
 }
 
+func NewRebootCommand() string {
+	return "/sbin/reboot"
+}
+
 func NewPowerOffCommand() string {
 	return "/sbin/poweroff"
 }

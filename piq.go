@@ -2,50 +2,19 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
-	"os/user"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/jsmootiv/piq/command"
+	"github.com/jsmootiv/piq/util"
 	"github.com/jsmootiv/piq/worker"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 )
-
-type config struct {
-	Workers []string `json:"workers"`
-}
-
-func OpenConfig(location string) (*config, error) {
-	cfg := &config{}
-	jsonFile, err := os.Open(location)
-
-	if err != nil {
-		currUser, err := user.Current()
-		if err != nil {
-			return cfg, nil
-		}
-		userCfg := currUser.HomeDir + "/.piq/config.json"
-		if location == userCfg {
-			return cfg, errors.New("No config found")
-		}
-		return OpenConfig(userCfg)
-	}
-	defer jsonFile.Close()
-
-	byteValue, err := ioutil.ReadAll(jsonFile)
-	if err != nil {
-		return cfg, nil
-	}
-	json.Unmarshal(byteValue, cfg)
-	return cfg, nil
-}
 
 func formatHashrateString(hRate float64) string {
 	return fmt.Sprintf("%.4f", hRate/1e3)
@@ -118,7 +87,7 @@ func getStats(cmd *cobra.Command, args []string) {
 	var hostWg sync.WaitGroup
 	var cmdWg sync.WaitGroup
 
-	appCfg, err := OpenConfig("./config.json")
+	appCfg, err := util.OpenConfig("./config.json")
 	if err != nil {
 		fmt.Println("Failed to load config: ", err)
 		panic(1)
@@ -174,7 +143,7 @@ func scaleWorkerUp(cmd *cobra.Command, args []string) {
 	fmt.Println("Worker scaling not supported")
 	// targetWorker := args[0]
 	// fmt.Println("Scaling up worker", targetWorker)
-	// appCfg, err := OpenConfig("./config.json")
+	// appCfg, err := util.OpenConfig("./config.json")
 	// if err != nil {
 	// 	fmt.Println("Failed to load config: ", err)
 	// 	panic(1)
@@ -214,7 +183,7 @@ func scaleWorkerUp(cmd *cobra.Command, args []string) {
 func scaleDownWorker(cmd *cobra.Command, args []string) {
 	fmt.Println("Worker scaling not supported")
 	// targetWorker := args[0]
-	// appCfg, err := OpenConfig("./config.json")
+	// appCfg, err := util.OpenConfig("./config.json")
 	// if err != nil {
 	// 	fmt.Println("Failed to load config: ", err)
 	// 	panic(1)
@@ -226,7 +195,7 @@ func scaleDownWorker(cmd *cobra.Command, args []string) {
 	// 	if err != nil {
 	// 		fmt.Println("Not able to scale worker")
 	// 		panic(1)
-	// 	}
+	// 	}s
 
 	// 	if currentWorker.Hostname != targetWorker {
 	// 		continue
@@ -253,44 +222,30 @@ func scaleDownWorker(cmd *cobra.Command, args []string) {
 	// }
 }
 
+func printWorkers(workers []worker.WorkerHost) {
+	for _, wk := range workers {
+		fmt.Println("   ", wk.Hostname)
+	}
+}
+
+func rebootWorkers(cmd *cobra.Command, args []string) {
+	targetWorker := strings.ToLower(args[0])
+	successKills, errKills := worker.RunExecutor(targetWorker, worker.RebootWorkers)
+	fmt.Printf("Rebooted %v workers\n", len(successKills))
+	if len(errKills) > 0 {
+		fmt.Printf("Issue rebooting %v workers\n", len(errKills))
+		printWorkers(errKills)
+	}
+}
+
 func killWorker(cmd *cobra.Command, args []string) {
 	targetWorker := strings.ToLower(args[0])
-	var killList []worker.WorkerHost
-	appCfg, err := OpenConfig("./config.json")
-	if err != nil {
-		fmt.Println("Failed to load config: ", err)
-		panic(1)
-	}
-
-	if targetWorker == "all" {
-		fmt.Printf("Killing all %v workers\n", len(appCfg.Workers))
-		for _, rawWorkerHostname := range appCfg.Workers {
-			currentWorker, err := worker.NewWorkerHostFromRaw(rawWorkerHostname)
-			if err != nil {
-				fmt.Println(err)
-				panic(1)
-			}
-			killList = append(killList, currentWorker)
-		}
-	} else {
-		targetWorker := targetWorker + ":22"
-		for _, rawWorkerHostname := range appCfg.Workers {
-			currentWorker, err := worker.NewWorkerHostFromRaw(rawWorkerHostname)
-			if err != nil {
-				fmt.Println("Not able to powerdown worker")
-				panic(1)
-			}
-
-			if currentWorker.Hostname == targetWorker {
-				killList = append(killList, currentWorker)
-				break
-			}
-		}
-	}
-	successKills, errKills := worker.KillWorkers(killList)
-
+	successKills, errKills := worker.RunExecutor(targetWorker, worker.KillWorkers)
 	fmt.Printf("Killed %v workers\n", len(successKills))
-	fmt.Printf("%v workers not killed\n", len(errKills))
+	if len(errKills) > 0 {
+		fmt.Printf("Issue killing %v workers\n", len(errKills))
+		printWorkers(errKills)
+	}
 }
 
 func pruneWorkers(cmd *cobra.Command, args []string) {
@@ -313,25 +268,6 @@ func main() {
 		Run:   getStats,
 	}
 
-	scaleCmd := &cobra.Command{
-		Use:   "scale [command]",
-		Short: "Scale Command",
-	}
-
-	scaleUp := &cobra.Command{
-		Use:   "up [hostname]",
-		Short: "Scales worker up",
-		Args:  cobra.MinimumNArgs(1),
-		Run:   scaleWorkerUp,
-	}
-
-	scaledown := &cobra.Command{
-		Use:   "down [hostname]",
-		Short: "Scales worker down",
-		Args:  cobra.MinimumNArgs(1),
-		Run:   scaleDownWorker,
-	}
-
 	kill := &cobra.Command{
 		Use:   "kill [hostname]",
 		Short: "Kills worker",
@@ -339,14 +275,17 @@ func main() {
 		Run:   killWorker,
 	}
 
-	// TODO: should be able to restart worker or the whole cluster
+	reboot := &cobra.Command{
+		Use:   "reboot [hostname]",
+		Short: "reboots worker",
+		Args:  cobra.MinimumNArgs(1),
+		Run:   rebootWorkers,
+	}
 
 	rootCmd := &cobra.Command{Use: "app"}
 	rootCmd.AddCommand(stats)
 	rootCmd.AddCommand(kill)
+	rootCmd.AddCommand(reboot)
 
-	rootCmd.AddCommand(scaleCmd)
-	scaleCmd.AddCommand(scaleUp)
-	scaleCmd.AddCommand(scaledown)
 	rootCmd.Execute()
 }
