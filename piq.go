@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/jsmootiv/piq/command"
+	"github.com/jsmootiv/piq/pools"
 	"github.com/jsmootiv/piq/util"
 	"github.com/jsmootiv/piq/worker"
 	"github.com/olekukonko/tablewriter"
@@ -82,6 +83,25 @@ func printStatsWorker(responseFeed chan command.CommandResponse, downFeed chan w
 	return done
 }
 
+func printPoolStats(poolFeed chan pools.Pool) {
+	var tableData [][]string
+	fmt.Println("Pool stats")
+	for myRes := range poolFeed {
+		row := []string{
+			myRes.Name,
+			myRes.Reward,
+			myRes.Hashrate,
+		}
+		tableData = append(tableData, row)
+	}
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Name", "Reward", "Hashrate"})
+	for _, v := range tableData {
+		table.Append(v)
+	}
+	table.Render() // Send output
+}
+
 func getStats(cmd *cobra.Command, args []string) {
 	fmt.Println("Starting stats collection")
 	var hostWg sync.WaitGroup
@@ -92,7 +112,7 @@ func getStats(cmd *cobra.Command, args []string) {
 		fmt.Println("Failed to load config: ", err)
 		panic(1)
 	}
-
+	poolsFeed, _ := pools.GetPools(appCfg.Pools)
 	workerHosts, err := worker.NewWorkerHostBatch(appCfg.Workers)
 	runningWorkers := make(chan *worker.WorkerConnection, len(workerHosts))
 	failedWorkers := make(chan worker.WorkerHost, len(workerHosts))
@@ -137,6 +157,7 @@ func getStats(cmd *cobra.Command, args []string) {
 	cmdWg.Wait()
 	close(responseFeed)
 	<-printDone
+	printPoolStats(poolsFeed)
 }
 
 func scaleWorkerUp(cmd *cobra.Command, args []string) {

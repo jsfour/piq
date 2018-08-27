@@ -6,10 +6,13 @@ import (
 	"io/ioutil"
 	"os"
 	"os/user"
+
+	"github.com/jsmootiv/piq/pools"
 )
 
 type config struct {
-	Workers []string `json:"workers"`
+	Workers []string     `json:"workers"`
+	Pools   []pools.Pool `json:"pools"`
 }
 
 func OpenConfig(location string) (*config, error) {

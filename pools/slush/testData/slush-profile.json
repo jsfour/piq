@@ -1,0 +1,22 @@
+{
+    "username": "foo",
+    "unconfirmed_reward": "0.00091305",
+    "rating": "none",
+    "nmc_send_threshold": "10.00000000",
+    "unconfirmed_nmc_reward": "0.00000000",
+    "estimated_reward": "0.00014981",
+    "hashrate": "56714321",
+    "confirmed_nmc_reward": "0.00000000",
+    "send_threshold": "0.01000000",
+    "confirmed_reward": "0.00665948",
+    "workers": {
+        "foo": {
+            "last_share": 1532385307,
+            "score": "0.0",
+            "alive": false,
+            "shares": 0,
+            "hashrate": 0
+        }
+    },
+    "wallet": "hidden"
+}

@@ -2,4 +2,7 @@
     "workers": [
         "user@hostname"
     ]
+    "pools": [
+        { name: "slushpool", accountId: "account-id" }
+    ]
 }
