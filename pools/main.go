@@ -23,7 +23,7 @@ func GetPools(poolParams []Pool) (chan Pool, error) {
 				nuPool := Pool{
 					Name:      p.Name,
 					AccountId: p.AccountId,
-					Reward:    res.EstimatedReward,
+					Reward:    res.ConfirmedReward,
 					Hashrate:  res.Hashrate,
 				}
 				resPools <- nuPool

@@ -85,79 +85,96 @@ func printStatsWorker(responseFeed chan command.CommandResponse, downFeed chan w
 
 func printPoolStats(poolFeed chan pools.Pool) {
 	var tableData [][]string
-	fmt.Println("Pool stats")
+	minPayout := 0.01 // TODO: move this into config
+	fmt.Println("Getting pool stats")
+	// TODO: fill in error
 	for myRes := range poolFeed {
+		rewardFl, _ := strconv.ParseFloat(myRes.Reward, 64)
+		prog := rewardFl / minPayout
 		row := []string{
 			myRes.Name,
 			myRes.Reward,
+			fmt.Sprintf("%.2f", prog*100),
 			myRes.Hashrate,
 		}
 		tableData = append(tableData, row)
 	}
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Name", "Reward", "Hashrate"})
+	table.SetHeader([]string{"Name", "Reward", "Payout Progress", "Hashrate"})
 	for _, v := range tableData {
 		table.Append(v)
 	}
 	table.Render() // Send output
 }
 
-func getStats(cmd *cobra.Command, args []string) {
-	fmt.Println("Starting stats collection")
+func getWorkerStats(arg string, workers []string) (chan command.CommandResponse, chan worker.WorkerHost) {
+	fmt.Println("Starting worker stats collection")
 	var hostWg sync.WaitGroup
 	var cmdWg sync.WaitGroup
+	workerHosts, err := worker.NewWorkerHostBatch(workers)
+	responseFeed := make(chan command.CommandResponse, len(workerHosts))
+	runningWorkers := make(chan *worker.WorkerConnection, len(workerHosts))
+	failedWorkers := make(chan worker.WorkerHost, len(workerHosts))
+	go func() {
+		defer close(responseFeed)
+		if err != nil {
+			fmt.Println("Failed to read workers: ", err)
+			panic(1)
+		}
 
+		for _, wkrHost := range workerHosts {
+			hostWg.Add(1)
+			go func(wkrHost worker.WorkerHost) {
+				defer hostWg.Done()
+				workerConn, err := worker.NewConnectedWorker(wkrHost)
+
+				if err != nil {
+					failedWorkers <- wkrHost
+					return
+				}
+				runningWorkers <- workerConn
+			}(wkrHost)
+		}
+
+		hostWg.Wait()
+		close(runningWorkers)
+		close(failedWorkers)
+		fmt.Printf("%v workers up, %v workers down\n", len(runningWorkers), len(failedWorkers))
+		for conn := range runningWorkers {
+			cmdWg.Add(1)
+			go func(conn *worker.WorkerConnection) {
+				close(conn.Close)
+				cmd := command.NewSummaryCommand()
+				res, err := conn.SendCommand(cmd)
+				if err != nil {
+					res.Data = command.NewErrorJson(err)
+				}
+				responseFeed <- *res
+				cmdWg.Done()
+			}(conn)
+		}
+		cmdWg.Wait()
+	}()
+	return responseFeed, failedWorkers
+}
+
+func getStats(cmd *cobra.Command, args []string) {
+	statArg := strings.ToLower(args[0])
 	appCfg, err := util.OpenConfig("./config.json")
 	if err != nil {
 		fmt.Println("Failed to load config: ", err)
 		panic(1)
 	}
-	poolsFeed, _ := pools.GetPools(appCfg.Pools)
-	workerHosts, err := worker.NewWorkerHostBatch(appCfg.Workers)
-	runningWorkers := make(chan *worker.WorkerConnection, len(workerHosts))
-	failedWorkers := make(chan worker.WorkerHost, len(workerHosts))
-	responseFeed := make(chan command.CommandResponse, len(workerHosts))
-	printDone := printStatsWorker(responseFeed, failedWorkers)
-	if err != nil {
-		fmt.Println("Failed to read workers: ", err)
-		panic(1)
+	// TODO: paralelize this operation
+	if statArg == "all" || statArg == "worker" {
+		responseFeed, failedWorkers := getWorkerStats(statArg, appCfg.Workers)
+		printDone := printStatsWorker(responseFeed, failedWorkers)
+		<-printDone
 	}
-
-	for _, wkrHost := range workerHosts {
-		hostWg.Add(1)
-		go func(wkrHost worker.WorkerHost) {
-			defer hostWg.Done()
-			workerConn, err := worker.NewConnectedWorker(wkrHost)
-
-			if err != nil {
-				failedWorkers <- wkrHost
-				return
-			}
-			runningWorkers <- workerConn
-		}(wkrHost)
+	if statArg == "all" || statArg == "pool" {
+		poolsFeed, _ := pools.GetPools(appCfg.Pools)
+		printPoolStats(poolsFeed)
 	}
-
-	hostWg.Wait()
-	close(runningWorkers)
-	close(failedWorkers)
-	fmt.Printf("%v workers up, %v workers down\n", len(runningWorkers), len(failedWorkers))
-	for conn := range runningWorkers {
-		cmdWg.Add(1)
-		go func(conn *worker.WorkerConnection) {
-			close(conn.Close)
-			cmd := command.NewSummaryCommand()
-			res, err := conn.SendCommand(cmd)
-			if err != nil {
-				res.Data = command.NewErrorJson(err)
-			}
-			responseFeed <- *res
-			cmdWg.Done()
-		}(conn)
-	}
-	cmdWg.Wait()
-	close(responseFeed)
-	<-printDone
-	printPoolStats(poolsFeed)
 }
 
 func scaleWorkerUp(cmd *cobra.Command, args []string) {
@@ -284,8 +301,9 @@ func pruneWorkers(cmd *cobra.Command, args []string) {
 
 func main() {
 	stats := &cobra.Command{
-		Use:   "stats",
-		Short: "Pulls stats from workers",
+		Use:   "stats [type]",
+		Short: "Pulls stats from worker or pool",
+		Args:  cobra.MinimumNArgs(1),
 		Run:   getStats,
 	}
 
