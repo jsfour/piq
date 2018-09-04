@@ -166,98 +166,15 @@ func getStats(cmd *cobra.Command, args []string) {
 		panic(1)
 	}
 	// TODO: paralelize this operation
-	if statArg == "all" || statArg == "worker" {
+	if statArg == "all" || statArg == "worker" || statArg == "workers" {
 		responseFeed, failedWorkers := getWorkerStats(statArg, appCfg.Workers)
 		printDone := printStatsWorker(responseFeed, failedWorkers)
 		<-printDone
 	}
-	if statArg == "all" || statArg == "pool" {
+	if statArg == "all" || statArg == "pool" || statArg == "pools" {
 		poolsFeed, _ := pools.GetPools(appCfg.Pools)
 		printPoolStats(poolsFeed)
 	}
-}
-
-func scaleWorkerUp(cmd *cobra.Command, args []string) {
-	fmt.Println("Worker scaling not supported")
-	// targetWorker := args[0]
-	// fmt.Println("Scaling up worker", targetWorker)
-	// appCfg, err := util.OpenConfig("./config.json")
-	// if err != nil {
-	// 	fmt.Println("Failed to load config: ", err)
-	// 	panic(1)
-	// }
-	// targetWorker = targetWorker + ":22"
-
-	// for _, rawWorkerHostname := range appCfg.Workers {
-	// 	currentWorker, err := worker.NewWorkerHostFromRaw(rawWorkerHostname)
-	// 	if err != nil {
-	// 		fmt.Println("Not able to scale worker")
-	// 		panic(1)
-	// 	}
-
-	// 	if currentWorker.Hostname != targetWorker {
-	// 		continue
-	// 	}
-
-	// 	for i := 0; i < 3; i++ {
-	// 		fmt.Println("    pool", i)
-	// 		// HACK: I dont need to reconnect every time
-	// 		// TODO: consolidate with the scaleUp
-
-	// 		workerConn, _ := worker.NewConnectedWorker(currentWorker)
-	// 		scaleCommand := command.NewScaleUpCommand(i)
-	// 		res, err := workerConn.SendCommand(scaleCommand)
-
-	// 		if err != nil {
-	// 			res.Data = command.NewErrorJson(err)
-	// 			continue
-	// 		}
-	// 		fmt.Printf("%s\n", res.Data)
-	// 		close(workerConn.Close)
-	// 	}
-	// }
-}
-
-func scaleDownWorker(cmd *cobra.Command, args []string) {
-	fmt.Println("Worker scaling not supported")
-	// targetWorker := args[0]
-	// appCfg, err := util.OpenConfig("./config.json")
-	// if err != nil {
-	// 	fmt.Println("Failed to load config: ", err)
-	// 	panic(1)
-	// }
-	// targetWorker = targetWorker + ":22"
-
-	// for _, rawWorkerHostname := range appCfg.Workers {
-	// 	currentWorker, err := worker.NewWorkerHostFromRaw(rawWorkerHostname)
-	// 	if err != nil {
-	// 		fmt.Println("Not able to scale worker")
-	// 		panic(1)
-	// 	}s
-
-	// 	if currentWorker.Hostname != targetWorker {
-	// 		continue
-	// 	}
-
-	// 	for i := 0; i < 3; i++ {
-	// 		fmt.Println("    pool", i)
-	// 		// HACK: I dont need to reconnect every time
-	// 		// TODO: consolidate with the scaleDown
-
-	// 		workerConn, _ := worker.NewConnectedWorker(currentWorker)
-	// 		cmd := command.NewScaleDownCommand(i)
-	// 		fmt.Println("%v", cmd)
-
-	// 		res, err := workerConn.SendCommand(cmd)
-
-	// 		if err != nil {
-	// 			res.Data = command.NewErrorJson(err)
-	// 			continue
-	// 		}
-	// 		fmt.Printf("    %s\n", res.Data)
-	// 		close(workerConn.Close)
-	// 	}
-	// }
 }
 
 func printWorkers(workers []worker.WorkerHost) {
@@ -287,16 +204,8 @@ func killWorker(cmd *cobra.Command, args []string) {
 }
 
 func pruneWorkers(cmd *cobra.Command, args []string) {
-	fmt.Println("Prune not supported")
+	fmt.Println("Prune not supported yet")
 	// TODO: find the weakest worker and kill it
-
-	// pruneTarget, err := strconv.Atoi(args[0])
-	// if err != nil {
-	// 	fmt.Println("Invalid prune value")
-	// 	panic(1)
-	// }
-	// fmt.Println("Powering workers worker", targetWorker)
-
 }
 
 func main() {
