@@ -107,7 +107,7 @@ func printPoolStats(poolFeed chan pools.Pool) {
 	table.Render() // Send output
 }
 
-func getWorkerStats(arg string, workers []string) (chan command.CommandResponse, chan worker.WorkerHost) {
+func getWorkerStats(workers []string) (chan command.CommandResponse, chan worker.WorkerHost) {
 	fmt.Println("Starting worker stats collection")
 	var hostWg sync.WaitGroup
 	var cmdWg sync.WaitGroup
@@ -158,16 +158,17 @@ func getWorkerStats(arg string, workers []string) (chan command.CommandResponse,
 	return responseFeed, failedWorkers
 }
 
-func getStats(cmd *cobra.Command, args []string) {
+func getStats(statsCmd *cobra.Command, args []string) {
 	statArg := strings.ToLower(args[0])
 	appCfg, err := util.OpenConfig("./config.json")
 	if err != nil {
 		fmt.Println("Failed to load config: ", err)
 		panic(1)
 	}
+
 	// TODO: paralelize this operation
 	if statArg == "all" || statArg == "worker" || statArg == "workers" {
-		responseFeed, failedWorkers := getWorkerStats(statArg, appCfg.Workers)
+		responseFeed, failedWorkers := getWorkerStats(appCfg.Workers)
 		printDone := printStatsWorker(responseFeed, failedWorkers)
 		<-printDone
 	}
@@ -210,7 +211,7 @@ func pruneWorkers(cmd *cobra.Command, args []string) {
 
 func main() {
 	stats := &cobra.Command{
-		Use:   "stats [type]",
+		Use:   "stats",
 		Short: "Pulls stats from worker or pool",
 		Args:  cobra.MinimumNArgs(1),
 		Run:   getStats,
